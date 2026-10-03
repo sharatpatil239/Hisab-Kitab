@@ -277,6 +277,8 @@ const deleteLoan = asyncHandler(async (req, res) => {
 
 // @desc    Record a repayment against a loan
 // @route   POST /api/loans/:id/repayments
+// @desc    Record a repayment against a loan
+// @route   POST /api/loans/:id/repayments
 // @access  Private
 const recordRepayment = asyncHandler(async (req, res) => {
   const loan = await findOwnedLoan(req, res);
@@ -291,32 +293,50 @@ const recordRepayment = asyncHandler(async (req, res) => {
   const paymentDate = isValidDate(date) ? new Date(date) : new Date();
 
   const summaryBefore = interestService.getLoanFinancialSummary(loan, paymentDate);
-  if (summaryBefore.remaining <= 0) {
+  if (summaryBefore.remaining <= 0 || loan.status === "PAID") {
     return sendError(res, 400, "This loan is already fully paid off");
   }
-  if (amount > summaryBefore.remaining) {
-    return sendError(
-      res,
-      400,
-      `Repayment amount (${amount}) exceeds the remaining balance (${summaryBefore.remaining})`
-    );
-  }
 
-  const { interestComponent, principalComponent } = interestService.allocateRepayment(
+  const { interestComponent, principalComponent, excessAmount } = interestService.allocateRepayment(
     loan,
     amount,
     paymentDate
   );
 
-  loan.interestPaid = round2(loan.interestPaid + interestComponent);
-  loan.principalPaid = round2(loan.principalPaid + principalComponent);
-  if (round2(summaryBefore.remaining - amount) <= 0) {
+  loan.interestPaid = round2((loan.interestPaid || 0) + interestComponent);
+  loan.principalPaid = round2((loan.principalPaid || 0) + principalComponent);
+
+  // Checkpoint accrued interest as of this payment date so already-paid principal
+  // does not generate future interest
+  loan.interestAccrued = summaryBefore.accruedInterest;
+  loan.lastInterestDate = paymentDate;
+
+  // Append to repayments ledger on the loan
+  loan.repayments = loan.repayments || [];
+  loan.repayments.push({
+    date: paymentDate,
+    amount: round2(amount),
+    principalPaid: principalComponent,
+    interestPaid: interestComponent,
+  });
+
+  const remainingAfterPayment = round2(
+    summaryBefore.remaining - (principalComponent + interestComponent)
+  );
+  if (remainingAfterPayment <= 0) {
     loan.status = "PAID";
   }
+
   await loan.save();
   await refreshLoanStatus(loan);
 
   const summaryAfter = interestService.getLoanFinancialSummary(loan, paymentDate);
+
+  const txnDescription =
+    description ||
+    (excessAmount > 0
+      ? `Repayment received (includes ₹${excessAmount} excess)`
+      : "Repayment received");
 
   const transaction = await Transaction.create({
     lender: req.lender._id,
@@ -325,15 +345,83 @@ const recordRepayment = asyncHandler(async (req, res) => {
     type: "REPAYMENT",
     amount,
     date: paymentDate,
-    description: description || "Repayment received",
+    description: txnDescription,
     principalComponent,
     interestComponent,
+    excessAmount: excessAmount || 0,
     remainingBalanceAfter: summaryAfter.remaining,
   });
 
   return sendSuccess(res, 201, "Repayment recorded successfully", {
     transaction,
     loan: formatLoanWithSummary(loan),
+    allocation: {
+      amountPaid: round2(amount),
+      appliedToInterest: interestComponent,
+      appliedToPrincipal: principalComponent,
+      excessAmount: excessAmount || 0,
+      remainingInterest: summaryAfter.outstandingInterest,
+      remainingPrincipal: summaryAfter.outstandingPrincipal,
+      remainingTotalOutstanding: summaryAfter.remaining,
+    },
+  });
+});
+
+// @desc    Preview repayment allocation without persisting changes
+// @route   POST /api/loans/:id/repayments/preview
+// @access  Private
+const getRepaymentPreview = asyncHandler(async (req, res) => {
+  const loan = await findOwnedLoan(req, res);
+  if (!loan) return;
+
+  const { amount, date } = req.body;
+  const paymentDate = isValidDate(date) ? new Date(date) : new Date();
+  const summaryBefore = interestService.getLoanFinancialSummary(loan, paymentDate);
+
+  const amountNum = Number(amount);
+  if (!isPositiveNumber(amountNum)) {
+    return sendError(res, 400, "Repayment amount must be a positive number");
+  }
+
+  if (summaryBefore.remaining <= 0 || loan.status === "PAID") {
+    return sendError(res, 400, "This loan is already fully paid off");
+  }
+
+  const { interestComponent, principalComponent, excessAmount } = interestService.allocateRepayment(
+    loan,
+    amountNum,
+    paymentDate
+  );
+
+  const remainingInterest = Math.max(0, round2(summaryBefore.outstandingInterest - interestComponent));
+  const remainingPrincipal = Math.max(0, round2(summaryBefore.outstandingPrincipal - principalComponent));
+  const remainingTotalOutstanding = Math.max(
+    0,
+    round2(summaryBefore.remaining - (principalComponent + interestComponent))
+  );
+
+  return sendSuccess(res, 200, "Repayment preview calculated", {
+    loanId: loan._id,
+    paymentAllocation: loan.paymentAllocation,
+    allocationRuleLabel: loan.paymentAllocation === "PRINCIPAL_FIRST" ? "Principal First" : "Interest First",
+    repaymentAmount: round2(amountNum),
+    paymentDate,
+    currentOutstanding: {
+      outstandingPrincipal: summaryBefore.outstandingPrincipal,
+      outstandingInterest: summaryBefore.outstandingInterest,
+      totalOutstanding: summaryBefore.remaining,
+    },
+    allocation: {
+      appliedToInterest: interestComponent,
+      appliedToPrincipal: principalComponent,
+      excessAmount: excessAmount || 0,
+    },
+    remainingAfter: {
+      remainingInterest,
+      remainingPrincipal,
+      remainingTotalOutstanding,
+    },
+    fullyRepaysLoan: remainingTotalOutstanding === 0,
   });
 });
 
@@ -345,6 +433,7 @@ module.exports = {
   updateLoan,
   deleteLoan,
   recordRepayment,
+  getRepaymentPreview,
   formatLoanWithSummary,
   refreshLoanStatus,
   findOwnedLoan,

@@ -95,6 +95,28 @@ const loanSchema = new mongoose.Schema(
       enum: ["INTEREST_FIRST", "PRINCIPAL_FIRST"],
       default: "INTEREST_FIRST",
     },
+
+    // Cumulative interest accrued and checkpointed up to lastInterestDate.
+    interestAccrued: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Date up to which interestAccrued was checkpointed.
+    lastInterestDate: {
+      type: Date,
+    },
+
+    // Historical ledger of repayments on this loan for exact interval calculations
+    repayments: [
+      {
+        date: { type: Date, required: true },
+        amount: { type: Number, required: true },
+        principalPaid: { type: Number, default: 0 },
+        interestPaid: { type: Number, default: 0 },
+      },
+    ],
   },
   { timestamps: true }
 );

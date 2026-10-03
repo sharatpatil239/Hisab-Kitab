@@ -50,15 +50,20 @@ const Dashboard = () => {
       <div className="stat-grid">
         <StatCard label="Total Lent" value={formatCurrency(totals.totalLent)} tone="lent" />
         <StatCard label="Total Received" value={formatCurrency(totals.totalReceived)} tone="received" />
-        <StatCard label="Outstanding" value={formatCurrency(totals.totalOutstanding)} tone="outstanding" />
         <StatCard label="Interest Accrued" value={formatCurrency(totals.totalInterestAccrued)} tone="interest" />
+        <StatCard label="Total Outstanding" value={formatCurrency(totals.totalOutstanding)} tone="outstanding" />
       </div>
 
-      <div className="stat-grid stat-grid-secondary">
-        <StatCard label="Active Borrowers" value={counts.activeBorrowers} />
-        <StatCard label="Total Borrowers" value={counts.totalBorrowers} />
+      <div className="stat-grid">
+        <StatCard label="Outstanding Principal" value={formatCurrency(totals.outstandingPrincipal ?? 0)} />
+        <StatCard label="Outstanding Interest" value={formatCurrency(totals.outstandingInterest ?? 0)} tone="interest" />
         <StatCard label="Active Loans" value={counts.activeLoans} />
         <StatCard label="Overdue Loans" value={counts.overdueLoans} tone={counts.overdueLoans > 0 ? "overdue" : "neutral"} />
+      </div>
+
+      <div className="stat-grid stat-grid-secondary" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <StatCard label="Active Borrowers" value={counts.activeBorrowers} />
+        <StatCard label="Total Borrowers" value={counts.totalBorrowers} />
       </div>
 
       <div className="dashboard-grid">
@@ -95,7 +100,9 @@ const Dashboard = () => {
                 <li key={txn._id} className="list-simple-item">
                   <span className="list-simple-main">
                     <span className="list-simple-title">{txn.borrower?.name || "Borrower"}</span>
-                    <span className="list-simple-sub">{formatDate(txn.date)}</span>
+                    <span className="list-simple-sub">
+                      {formatDate(txn.date)} · Principal: {formatCurrency(txn.principalComponent ?? 0)} · Interest: {formatCurrency(txn.interestComponent ?? 0)}
+                    </span>
                   </span>
                   <span className="amount amount-received">-{formatCurrency(txn.amount)}</span>
                 </li>

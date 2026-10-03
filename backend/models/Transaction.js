@@ -53,6 +53,10 @@ const transactionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    excessAmount: {
+      type: Number,
+      default: 0,
+    },
 
     // Snapshot of the loan's outstanding balance right after this
     // transaction was applied - makes the ledger easy to read without

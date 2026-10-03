@@ -64,7 +64,7 @@ const Overdue = () => {
               <th>Borrower</th>
               <th>Loan Amount</th>
               <th>Interest</th>
-              <th>Outstanding</th>
+              <th>Total Outstanding</th>
               <th>Due Date</th>
               <th>Days Overdue</th>
               <th>Status</th>
@@ -76,7 +76,12 @@ const Overdue = () => {
                 <td>{borrowerNameById[loan.borrower] || "—"}</td>
                 <td>{formatCurrency(loan.principal)}</td>
                 <td>{formatCurrency(loan.accruedInterest)}</td>
-                <td>{formatCurrency(loan.remaining)}</td>
+                <td>
+                  <strong>{formatCurrency(loan.totalOutstanding ?? loan.remaining ?? 0)}</strong>
+                  <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
+                    Principal: {formatCurrency(loan.outstandingPrincipal ?? 0)} · Interest: {formatCurrency(loan.outstandingInterest ?? 0)}
+                  </div>
+                </td>
                 <td>{formatDate(loan.dueDate)}</td>
                 <td className="overdue-days">{daysOverdue(loan.dueDate)} days</td>
                 <td>{loan.status}</td>

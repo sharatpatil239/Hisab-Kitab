@@ -69,9 +69,11 @@ const LoanDetails = () => {
 
   const handleRepayment = async (values) => {
     const res = await recordRepayment(id, values);
-    setLoan(res.loan);
-    setShowRepaymentModal(false);
+    if (res?.loan) {
+      setLoan(res.loan);
+    }
     load();
+    return res;
   };
 
   const handleDelete = async () => {
@@ -101,6 +103,9 @@ const LoanDetails = () => {
           </p>
         </div>
         <div className="detail-header-actions">
+          <Badge tone="neutral">
+            Allocation: {PAYMENT_ALLOCATION_LABELS[loan.paymentAllocation] || loan.paymentAllocation}
+          </Badge>
           <Badge tone={statusTone(loan.status)}>{LOAN_STATUS_LABELS[loan.status] || loan.status}</Badge>
           <button type="button" className="btn btn-secondary" onClick={() => setShowDeleteConfirm(true)}>
             Delete
@@ -114,22 +119,45 @@ const LoanDetails = () => {
       </div>
 
       <section className="panel">
+        <div className="panel-header">
+          <h2>Outstanding Balances</h2>
+        </div>
+        <div className="summary-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="stat-card">
+            <p className="stat-card-label">Outstanding Principal</p>
+            <p className="stat-card-value">{formatCurrency(loan.outstandingPrincipal ?? 0)}</p>
+          </div>
+          <div className="stat-card stat-card-interest">
+            <p className="stat-card-label">Outstanding Interest</p>
+            <p className="stat-card-value">{formatCurrency(loan.outstandingInterest ?? 0)}</p>
+          </div>
+          <div className="stat-card stat-card-outstanding">
+            <p className="stat-card-label">Total Outstanding</p>
+            <p className="stat-card-value">{formatCurrency(loan.totalOutstanding ?? loan.remaining ?? 0)}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Loan Overview</h2>
+        </div>
         <div className="summary-grid">
           <div className="stat-card">
-            <p className="stat-card-label">Principal</p>
+            <p className="stat-card-label">Principal Lent</p>
             <p className="stat-card-value">{formatCurrency(loan.principal)}</p>
           </div>
           <div className="stat-card stat-card-interest">
-            <p className="stat-card-label">Interest</p>
+            <p className="stat-card-label">Interest Accrued</p>
             <p className="stat-card-value">{formatCurrency(loan.accruedInterest)}</p>
           </div>
           <div className="stat-card">
             <p className="stat-card-label">Total Due</p>
             <p className="stat-card-value">{formatCurrency(loan.totalDue)}</p>
           </div>
-          <div className="stat-card stat-card-outstanding">
-            <p className="stat-card-label">Remaining</p>
-            <p className="stat-card-value">{formatCurrency(loan.remaining)}</p>
+          <div className="stat-card stat-card-received">
+            <p className="stat-card-label">Total Repaid</p>
+            <p className="stat-card-value">{formatCurrency(loan.totalPaid ?? 0)}</p>
           </div>
         </div>
       </section>
@@ -139,24 +167,38 @@ const LoanDetails = () => {
           <h2>Loan Details</h2>
         </div>
         <div className="summary-row">
-          <span className="summary-row-label">Paid</span>
-          <span className="summary-row-value">{formatCurrency(loan.totalPaid)}</span>
+          <span className="summary-row-label">Payment Allocation Rule</span>
+          <span className="summary-row-value">
+            <Badge tone="neutral">
+              {PAYMENT_ALLOCATION_LABELS[loan.paymentAllocation] || loan.paymentAllocation}
+            </Badge>
+          </span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-row-label">Outstanding Principal</span>
+          <span className="summary-row-value">{formatCurrency(loan.outstandingPrincipal ?? 0)}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-row-label">Outstanding Interest</span>
+          <span className="summary-row-value">{formatCurrency(loan.outstandingInterest ?? 0)}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-row-label">Total Outstanding</span>
+          <span className="summary-row-value" style={{ color: "var(--color-warning)" }}>
+            {formatCurrency(loan.totalOutstanding ?? loan.remaining ?? 0)}
+          </span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-row-label">Total Repaid</span>
+          <span className="summary-row-value">{formatCurrency(loan.totalPaid ?? 0)}</span>
         </div>
         <div className="summary-row" style={{ paddingLeft: 20, fontSize: "0.9em", opacity: 0.8 }}>
           <span className="summary-row-label">└ Principal Paid</span>
-          <span className="summary-row-value">{formatCurrency(loan.principalPaid)}</span>
+          <span className="summary-row-value">{formatCurrency(loan.principalPaid ?? 0)}</span>
         </div>
         <div className="summary-row" style={{ paddingLeft: 20, fontSize: "0.9em", opacity: 0.8 }}>
           <span className="summary-row-label">└ Interest Paid</span>
-          <span className="summary-row-value">{formatCurrency(loan.interestPaid)}</span>
-        </div>
-        <div className="summary-row" style={{ paddingLeft: 20, fontSize: "0.9em", opacity: 0.8 }}>
-          <span className="summary-row-label">└ Remaining Principal</span>
-          <span className="summary-row-value">{formatCurrency(loan.outstandingPrincipal)}</span>
-        </div>
-        <div className="summary-row" style={{ paddingLeft: 20, fontSize: "0.9em", opacity: 0.8 }}>
-          <span className="summary-row-label">└ Remaining Interest</span>
-          <span className="summary-row-value">{formatCurrency(loan.outstandingInterest)}</span>
+          <span className="summary-row-value">{formatCurrency(loan.interestPaid ?? 0)}</span>
         </div>
         <div className="summary-row">
           <span className="summary-row-label">Interest Type</span>
@@ -175,12 +217,6 @@ const LoanDetails = () => {
         <div className="summary-row">
           <span className="summary-row-label">Due Date</span>
           <span className="summary-row-value">{formatDate(loan.dueDate)}</span>
-        </div>
-        <div className="summary-row">
-          <span className="summary-row-label">Payment Allocation</span>
-          <span className="summary-row-value">
-            {PAYMENT_ALLOCATION_LABELS[loan.paymentAllocation] || loan.paymentAllocation}
-          </span>
         </div>
         <div className="summary-row">
           <span className="summary-row-label">Status</span>
@@ -203,9 +239,13 @@ const LoanDetails = () => {
 
       <Modal open={showRepaymentModal} title="Record Repayment" onClose={() => setShowRepaymentModal(false)}>
         <RepaymentForm
-          remaining={loan.remaining}
+          loan={loan}
+          remaining={loan.totalOutstanding ?? loan.remaining}
           onSubmit={handleRepayment}
-          onCancel={() => setShowRepaymentModal(false)}
+          onCancel={() => {
+            setShowRepaymentModal(false);
+            load();
+          }}
         />
       </Modal>
 

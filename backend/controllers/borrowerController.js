@@ -2,7 +2,7 @@ const Borrower = require("../models/Borrower");
 const Loan = require("../models/Loan");
 const Transaction = require("../models/Transaction");
 const interestService = require("../services/interestService");
-const { sendSuccess, sendError, asyncHandler } = require("../utils/helpers");
+const { sendSuccess, sendError, asyncHandler, round2 } = require("../utils/helpers");
 const { isNonEmptyString } = require("../utils/validators");
 
 // @desc    Add a new borrower
@@ -158,13 +158,33 @@ const getBorrowerAccountSummary = asyncHandler(async (req, res) => {
 
   const totals = loansWithSummary.reduce(
     (acc, loan) => {
-      acc.totalLent += loan.principal;
-      acc.totalPaid += loan.totalPaid;
+      acc.totalPrincipalLent += loan.principal;
+      acc.totalInterestAccrued += loan.accruedInterest;
+      acc.totalRepaid += loan.totalPaid;
+      acc.outstandingPrincipal += loan.outstandingPrincipal;
+      acc.outstandingInterest += loan.outstandingInterest;
       acc.totalOutstanding += loan.remaining;
       return acc;
     },
-    { totalLent: 0, totalPaid: 0, totalOutstanding: 0 }
+    {
+      totalPrincipalLent: 0,
+      totalInterestAccrued: 0,
+      totalRepaid: 0,
+      outstandingPrincipal: 0,
+      outstandingInterest: 0,
+      totalOutstanding: 0,
+    }
   );
+
+  totals.totalPrincipalLent = round2(totals.totalPrincipalLent);
+  totals.totalInterestAccrued = round2(totals.totalInterestAccrued);
+  totals.totalRepaid = round2(totals.totalRepaid);
+  totals.outstandingPrincipal = round2(totals.outstandingPrincipal);
+  totals.outstandingInterest = round2(totals.outstandingInterest);
+  totals.totalOutstanding = round2(totals.totalOutstanding);
+  // Maintain backward-compatible aliases
+  totals.totalLent = totals.totalPrincipalLent;
+  totals.totalPaid = totals.totalRepaid;
 
   return sendSuccess(res, 200, "Borrower account summary fetched successfully", {
     borrower,

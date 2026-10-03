@@ -19,6 +19,8 @@ const getDashboard = asyncHandler(async (req, res) => {
   let totalReceived = 0;
   let totalOutstanding = 0;
   let totalInterestAccrued = 0;
+  let outstandingPrincipal = 0;
+  let outstandingInterest = 0;
   let activeLoanCount = 0;
   let overdueLoanCount = 0;
 
@@ -30,6 +32,8 @@ const getDashboard = asyncHandler(async (req, res) => {
     totalReceived += summary.totalPaid;
     totalOutstanding += summary.remaining;
     totalInterestAccrued += summary.accruedInterest;
+    outstandingPrincipal += summary.outstandingPrincipal;
+    outstandingInterest += summary.outstandingInterest;
 
     if (loan.status !== "PAID") activeLoanCount += 1;
     if (overdue) overdueLoanCount += 1;
@@ -59,6 +63,8 @@ const getDashboard = asyncHandler(async (req, res) => {
       totalReceived: round2(totalReceived),
       totalOutstanding: round2(totalOutstanding),
       totalInterestAccrued: round2(totalInterestAccrued),
+      outstandingPrincipal: round2(outstandingPrincipal),
+      outstandingInterest: round2(outstandingInterest),
     },
     counts: {
       totalBorrowers: borrowerCount,

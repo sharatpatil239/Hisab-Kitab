@@ -29,6 +29,11 @@ const TransactionList = ({ transactions, showBorrower = false, showLoan = false,
             <span className="list-simple-sub">
               {formatDate(txn.date)}
               {txn.description ? ` · ${txn.description}` : ""}
+              {txn.type === "REPAYMENT" && (
+                <span style={{ display: "block", marginTop: 2, color: "var(--color-text)", fontWeight: 500 }}>
+                  Principal: {formatCurrency(txn.principalComponent ?? 0)} · Interest: {formatCurrency(txn.interestComponent ?? 0)}
+                </span>
+              )}
             </span>
           </span>
           <span className="amount" style={{ display: "flex", alignItems: "center", gap: 10 }}>

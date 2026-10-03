@@ -126,6 +126,7 @@ const Transactions = () => {
                 <th>Loan</th>
                 <th>Type</th>
                 <th>Amount</th>
+                <th>Allocation Breakdown</th>
                 <th>Description</th>
               </tr>
             </thead>
@@ -143,6 +144,15 @@ const Transactions = () => {
                     <Badge tone={typeTone(txn.type)}>{TRANSACTION_TYPE_LABELS[txn.type] || txn.type}</Badge>
                   </td>
                   <td>{signedAmount(txn)}</td>
+                  <td>
+                    {txn.type === "REPAYMENT" ? (
+                      <span style={{ fontSize: 13 }}>
+                        Principal: {formatCurrency(txn.principalComponent ?? 0)} · Interest: {formatCurrency(txn.interestComponent ?? 0)}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td>{txn.description || "—"}</td>
                 </tr>
               ))}

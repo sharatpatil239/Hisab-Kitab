@@ -142,8 +142,8 @@ const Loans = () => {
                 <th>Principal</th>
                 <th>Interest</th>
                 <th>Total Due</th>
-                <th>Paid</th>
-                <th>Remaining</th>
+                <th>Total Paid</th>
+                <th>Total Outstanding</th>
                 <th>Type</th>
                 <th>Rate</th>
                 <th>Due Date</th>
@@ -161,8 +161,13 @@ const Loans = () => {
                   <td>{formatCurrency(loan.principal)}</td>
                   <td>{formatCurrency(loan.accruedInterest)}</td>
                   <td>{formatCurrency(loan.totalDue)}</td>
-                  <td>{formatCurrency(loan.totalPaid)}</td>
-                  <td>{formatCurrency(loan.remaining)}</td>
+                  <td>{formatCurrency(loan.totalPaid ?? 0)}</td>
+                  <td>
+                    <strong>{formatCurrency(loan.totalOutstanding ?? loan.remaining ?? 0)}</strong>
+                    <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
+                      Principal: {formatCurrency(loan.outstandingPrincipal ?? 0)} · Interest: {formatCurrency(loan.outstandingInterest ?? 0)}
+                    </div>
+                  </td>
                   <td>{INTEREST_TYPE_LABELS[loan.interestType]}</td>
                   <td>
                     {loan.interestRate}% / {RATE_PERIOD_LABELS[loan.ratePeriod]}

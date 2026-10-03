@@ -24,6 +24,10 @@ export const updateLoan = (id, payload) =>
 export const deleteLoan = (id) =>
   client.delete(`/loans/${id}`).then((res) => res.data);
 
-// POST /api/loans/:id/repayments  { amount, date, description } -> { transaction, loan }
+// POST /api/loans/:id/repayments/preview  { amount, date } -> { loanId, paymentAllocation, repaymentAmount, allocation, remainingAfter, ... }
+export const getRepaymentPreview = (id, payload) =>
+  client.post(`/loans/${id}/repayments/preview`, payload).then((res) => res.data);
+
+// POST /api/loans/:id/repayments  { amount, date, description } -> { transaction, loan, allocation }
 export const recordRepayment = (id, payload) =>
   client.post(`/loans/${id}/repayments`, payload).then((res) => res.data);

@@ -17,6 +17,7 @@ import {
   formatDate,
   INTEREST_TYPE_LABELS,
   LOAN_STATUS_LABELS,
+  PAYMENT_ALLOCATION_LABELS,
   RATE_PERIOD_LABELS,
 } from "../utils/format";
 
@@ -112,18 +113,30 @@ const BorrowerDetails = () => {
         </div>
       </div>
 
-      <div className="stat-grid">
-        <div className="stat-card stat-card-outstanding">
-          <p className="stat-card-label">Outstanding</p>
-          <p className="stat-card-value">{formatCurrency(totals.totalOutstanding)}</p>
-        </div>
+      <div className="stat-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
         <div className="stat-card stat-card-lent">
-          <p className="stat-card-label">Total Principal Given</p>
-          <p className="stat-card-value">{formatCurrency(totals.totalLent)}</p>
+          <p className="stat-card-label">Total Principal Lent</p>
+          <p className="stat-card-value">{formatCurrency(totals.totalPrincipalLent ?? totals.totalLent ?? 0)}</p>
+        </div>
+        <div className="stat-card stat-card-interest">
+          <p className="stat-card-label">Total Interest Accrued</p>
+          <p className="stat-card-value">{formatCurrency(totals.totalInterestAccrued ?? 0)}</p>
         </div>
         <div className="stat-card stat-card-received">
-          <p className="stat-card-label">Total Paid</p>
-          <p className="stat-card-value">{formatCurrency(totals.totalPaid)}</p>
+          <p className="stat-card-label">Total Repaid</p>
+          <p className="stat-card-value">{formatCurrency(totals.totalRepaid ?? totals.totalPaid ?? 0)}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-card-label">Outstanding Principal</p>
+          <p className="stat-card-value">{formatCurrency(totals.outstandingPrincipal ?? 0)}</p>
+        </div>
+        <div className="stat-card stat-card-interest">
+          <p className="stat-card-label">Outstanding Interest</p>
+          <p className="stat-card-value">{formatCurrency(totals.outstandingInterest ?? 0)}</p>
+        </div>
+        <div className="stat-card stat-card-outstanding">
+          <p className="stat-card-label">Total Outstanding</p>
+          <p className="stat-card-value">{formatCurrency(totals.totalOutstanding ?? 0)}</p>
         </div>
       </div>
 
@@ -145,21 +158,36 @@ const BorrowerDetails = () => {
             {loans.map((loan) => (
               <div key={loan.id} className="loan-card" onClick={() => navigate(`/loans/${loan.id}`)}>
                 <div className="loan-card-top">
-                  <strong>{formatCurrency(loan.principal)}</strong>
+                  <div>
+                    <strong>{formatCurrency(loan.principal)}</strong>
+                    <span style={{ fontSize: 12, color: "var(--color-text-muted)", marginLeft: 6 }}>
+                      ({PAYMENT_ALLOCATION_LABELS[loan.paymentAllocation] || loan.paymentAllocation})
+                    </span>
+                  </div>
                   <Badge tone={statusTone(loan.status)}>{LOAN_STATUS_LABELS[loan.status] || loan.status}</Badge>
                 </div>
                 <div className="loan-card-grid">
                   <div className="loan-card-grid-item">
-                    <span className="loan-card-grid-label">Interest</span>
-                    <span>{formatCurrency(loan.accruedInterest)}</span>
+                    <span className="loan-card-grid-label">Outstanding Principal</span>
+                    <span>{formatCurrency(loan.outstandingPrincipal ?? 0)}</span>
                   </div>
                   <div className="loan-card-grid-item">
-                    <span className="loan-card-grid-label">Paid</span>
-                    <span>{formatCurrency(loan.totalPaid)}</span>
+                    <span className="loan-card-grid-label">Outstanding Interest</span>
+                    <span>{formatCurrency(loan.outstandingInterest ?? 0)}</span>
                   </div>
                   <div className="loan-card-grid-item">
-                    <span className="loan-card-grid-label">Remaining</span>
-                    <span>{formatCurrency(loan.remaining)}</span>
+                    <span className="loan-card-grid-label">Total Outstanding</span>
+                    <span style={{ fontWeight: 700, color: "var(--color-warning)" }}>
+                      {formatCurrency(loan.totalOutstanding ?? loan.remaining ?? 0)}
+                    </span>
+                  </div>
+                  <div className="loan-card-grid-item">
+                    <span className="loan-card-grid-label">Total Repaid</span>
+                    <span>{formatCurrency(loan.totalPaid ?? 0)}</span>
+                  </div>
+                  <div className="loan-card-grid-item">
+                    <span className="loan-card-grid-label">Interest Accrued</span>
+                    <span>{formatCurrency(loan.accruedInterest ?? 0)}</span>
                   </div>
                   <div className="loan-card-grid-item">
                     <span className="loan-card-grid-label">Due Date</span>
