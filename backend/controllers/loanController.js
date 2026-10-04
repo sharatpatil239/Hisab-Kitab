@@ -17,10 +17,12 @@ const {
  */
 const formatLoanWithSummary = (loan) => {
   const summary = interestService.getLoanFinancialSummary(loan);
+  const effectiveStatus = interestService.getEffectiveLoanStatus(loan);
   return {
-    id: loan._id,
+    id: loan._id || loan.id,
     lender: loan.lender,
     borrower: loan.borrower,
+    principal: round2(loan.principal),
     principalPaid: loan.principalPaid,
     interestPaid: loan.interestPaid,
     interestType: loan.interestType,
@@ -30,7 +32,7 @@ const formatLoanWithSummary = (loan) => {
     dueDate: loan.dueDate,
     loanCreationDate: loan.loanCreationDate,
     description: loan.description,
-    status: loan.status,
+    status: effectiveStatus,
     paymentAllocation: loan.paymentAllocation,
     createdAt: loan.createdAt,
     updatedAt: loan.updatedAt,
@@ -40,23 +42,17 @@ const formatLoanWithSummary = (loan) => {
 
 /**
  * Recomputes a loan's status (ACTIVE / PAID / OVERDUE) based on its
- * current financial summary, and persists it if it changed.
+ * current financial summary using the centralized interestService logic,
+ * and persists it if it changed.
  */
-const refreshLoanStatus = async (loan) => {
-  const summary = interestService.getLoanFinancialSummary(loan);
-  let newStatus = loan.status;
+const refreshLoanStatus = async (loan, asOfDate = new Date()) => {
+  const effectiveStatus = interestService.getEffectiveLoanStatus(loan, asOfDate);
 
-  if (summary.remaining <= 0) {
-    newStatus = "PAID";
-  } else if (interestService.isLoanOverdue(loan)) {
-    newStatus = "OVERDUE";
-  } else {
-    newStatus = "ACTIVE";
-  }
-
-  if (newStatus !== loan.status) {
-    loan.status = newStatus;
-    await loan.save();
+  if (effectiveStatus !== loan.status) {
+    loan.status = effectiveStatus;
+    if (typeof loan.save === "function") {
+      await loan.save();
+    }
   }
   return loan;
 };
@@ -114,9 +110,25 @@ const createLoan = asyncHandler(async (req, res) => {
   if (!isValidDate(dueDate)) {
     return sendError(res, 400, "A valid dueDate is required");
   }
-  if (new Date(dueDate) < new Date(interestStartDate)) {
+  if (loanCreationDate !== undefined && !isValidDate(loanCreationDate)) {
+    return sendError(res, 400, "A valid loanCreationDate is required");
+  }
+
+  // TASK 1: loan creation/disbursement date <= interest start date <= due date
+  const creationDate = loanCreationDate ? new Date(loanCreationDate) : new Date(interestStartDate);
+  const startDate = new Date(interestStartDate);
+  const endDate = new Date(dueDate);
+
+  if (creationDate > startDate) {
+    return sendError(res, 400, "interestStartDate cannot be before loanCreationDate");
+  }
+  if (startDate > endDate) {
     return sendError(res, 400, "dueDate cannot be before interestStartDate");
   }
+  if (creationDate > endDate) {
+    return sendError(res, 400, "dueDate cannot be before loanCreationDate");
+  }
+
   if (paymentAllocation && !VALID_PAYMENT_ALLOCATIONS.includes(paymentAllocation)) {
     return sendError(res, 400, `paymentAllocation must be one of: ${VALID_PAYMENT_ALLOCATIONS.join(", ")}`);
   }
@@ -128,9 +140,9 @@ const createLoan = asyncHandler(async (req, res) => {
     interestType,
     interestRate,
     ratePeriod,
-    interestStartDate,
-    dueDate,
-    loanCreationDate: loanCreationDate || interestStartDate || Date.now(),
+    interestStartDate: startDate,
+    dueDate: endDate,
+    loanCreationDate: creationDate,
     description,
     paymentAllocation: paymentAllocation || "INTEREST_FIRST",
   });
@@ -159,16 +171,20 @@ const getLoans = asyncHandler(async (req, res) => {
 
   const query = { lender: req.lender._id };
   if (borrowerId) query.borrower = borrowerId;
-  if (status) query.status = status;
 
+  // TASK 4: Do not filter by status in MongoDB before refreshing statuses!
+  // A loan whose due date passed today must have its status refreshed first.
   const loans = await Loan.find(query).sort({ createdAt: -1 });
 
-  // Refresh statuses (e.g. mark newly-overdue loans) before returning
+  // Refresh statuses (persisting any transitions like ACTIVE -> OVERDUE or PAID)
   const refreshed = await Promise.all(loans.map((loan) => refreshLoanStatus(loan)));
 
+  // Filter by status AFTER status is refreshed and calculated
+  const filtered = status ? refreshed.filter((loan) => loan.status === status) : refreshed;
+
   return sendSuccess(res, 200, "Loans fetched successfully", {
-    count: refreshed.length,
-    loans: refreshed.map(formatLoanWithSummary),
+    count: filtered.length,
+    loans: filtered.map(formatLoanWithSummary),
   });
 });
 
@@ -176,12 +192,12 @@ const getLoans = asyncHandler(async (req, res) => {
 // @route   GET /api/loans/overdue
 // @access  Private
 const getOverdueLoans = asyncHandler(async (req, res) => {
-  const loans = await Loan.find({ lender: req.lender._id, status: { $ne: "PAID" } });
+  const loans = await Loan.find({ lender: req.lender._id });
 
   const overdueLoans = [];
   for (const loan of loans) {
-    if (interestService.isLoanOverdue(loan)) {
-      await refreshLoanStatus(loan);
+    await refreshLoanStatus(loan);
+    if (loan.status === "OVERDUE") {
       overdueLoans.push(formatLoanWithSummary(loan));
     }
   }
@@ -209,46 +225,130 @@ const getLoanById = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Update a loan's editable details (not its financial history)
+// @desc    Update a loan's editable details (protecting financial terms if repayments exist)
 // @route   PUT /api/loans/:id
 // @access  Private
 const updateLoan = asyncHandler(async (req, res) => {
   const loan = await findOwnedLoan(req, res);
   if (!loan) return;
 
-  const { interestRate, ratePeriod, dueDate, description, paymentAllocation, interestType } = req.body;
+  const repaymentCount = await Transaction.countDocuments({ loan: loan._id, type: "REPAYMENT" });
+  const hasRepayments =
+    repaymentCount > 0 ||
+    (Array.isArray(loan.repayments) && loan.repayments.length > 0) ||
+    loan.principalPaid > 0 ||
+    loan.interestPaid > 0;
 
-  if (interestType !== undefined) {
-    if (!VALID_INTEREST_TYPES.includes(interestType)) {
-      return sendError(res, 400, `interestType must be one of: ${VALID_INTEREST_TYPES.join(", ")}`);
+  const {
+    principal,
+    interestType,
+    interestRate,
+    ratePeriod,
+    interestStartDate,
+    dueDate,
+    description,
+    paymentAllocation,
+  } = req.body;
+
+  // TASK 5: Protected financial terms
+  const toDateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : undefined);
+  const financialFields = [
+    { key: "original principal", proposed: principal, current: loan.principal },
+    { key: "interest type", proposed: interestType, current: loan.interestType },
+    { key: "interest rate", proposed: interestRate, current: loan.interestRate },
+    { key: "rate period", proposed: ratePeriod, current: loan.ratePeriod },
+    {
+      key: "interest start date",
+      proposed: toDateOnly(interestStartDate),
+      current: toDateOnly(loan.interestStartDate),
+    },
+    { key: "repayment allocation policy", proposed: paymentAllocation, current: loan.paymentAllocation },
+  ];
+
+  if (hasRepayments) {
+    const attemptedChanges = financialFields.filter(
+      (f) => f.proposed !== undefined && f.proposed !== f.current
+    );
+
+    if (attemptedChanges.length > 0) {
+      const changedNames = attemptedChanges.map((f) => f.key).join(", ");
+      return sendError(
+        res,
+        400,
+        `Cannot modify financial terms (${changedNames}) after repayments have been recorded on this loan.`
+      );
     }
-    loan.interestType = interestType;
-  }
-  if (interestRate !== undefined) {
-    if (typeof interestRate !== "number" || interestRate < 0) {
-      return sendError(res, 400, "interestRate must be a non-negative number");
+  } else {
+    // No repayments yet - allow modifying financial terms with strict validation
+    if (principal !== undefined) {
+      if (!isPositiveNumber(principal)) {
+        return sendError(res, 400, "Principal must be a positive number");
+      }
+      loan.principal = principal;
+      await Transaction.updateOne(
+        { loan: loan._id, type: "LOAN_DISBURSED" },
+        { amount: principal, remainingBalanceAfter: principal }
+      );
     }
-    loan.interestRate = interestRate;
-  }
-  if (ratePeriod !== undefined) {
-    if (!VALID_RATE_PERIODS.includes(ratePeriod)) {
-      return sendError(res, 400, `ratePeriod must be one of: ${VALID_RATE_PERIODS.join(", ")}`);
+
+    if (interestType !== undefined) {
+      if (!VALID_INTEREST_TYPES.includes(interestType)) {
+        return sendError(res, 400, `interestType must be one of: ${VALID_INTEREST_TYPES.join(", ")}`);
+      }
+      loan.interestType = interestType;
     }
-    loan.ratePeriod = ratePeriod;
+
+    if (interestRate !== undefined) {
+      if (typeof interestRate !== "number" || interestRate < 0) {
+        return sendError(res, 400, "interestRate must be a non-negative number");
+      }
+      loan.interestRate = interestRate;
+    }
+
+    if (ratePeriod !== undefined) {
+      if (!VALID_RATE_PERIODS.includes(ratePeriod)) {
+        return sendError(res, 400, `ratePeriod must be one of: ${VALID_RATE_PERIODS.join(", ")}`);
+      }
+      loan.ratePeriod = ratePeriod;
+    }
+
+    if (paymentAllocation !== undefined) {
+      if (!VALID_PAYMENT_ALLOCATIONS.includes(paymentAllocation)) {
+        return sendError(res, 400, `paymentAllocation must be one of: ${VALID_PAYMENT_ALLOCATIONS.join(", ")}`);
+      }
+      loan.paymentAllocation = paymentAllocation;
+    }
+
+    if (interestStartDate !== undefined) {
+      if (!isValidDate(interestStartDate)) {
+        return sendError(res, 400, "A valid interestStartDate is required");
+      }
+      const newStartDate = new Date(interestStartDate);
+      const creationDate = loan.loanCreationDate ? new Date(loan.loanCreationDate) : newStartDate;
+      const targetDueDate = dueDate ? new Date(dueDate) : new Date(loan.dueDate);
+
+      if (newStartDate < creationDate) {
+        return sendError(res, 400, "interestStartDate cannot be before loanCreationDate");
+      }
+      if (newStartDate > targetDueDate) {
+        return sendError(res, 400, "dueDate cannot be before interestStartDate");
+      }
+      loan.interestStartDate = newStartDate;
+    }
   }
+
+  // Due date and description can always be edited if valid
   if (dueDate !== undefined) {
     if (!isValidDate(dueDate)) return sendError(res, 400, "A valid dueDate is required");
-    if (new Date(dueDate) < new Date(loan.interestStartDate)) {
+    const targetStartDate = new Date(loan.interestStartDate);
+    if (new Date(dueDate) < targetStartDate) {
       return sendError(res, 400, "dueDate cannot be before interestStartDate");
     }
     loan.dueDate = dueDate;
   }
-  if (description !== undefined) loan.description = description;
-  if (paymentAllocation !== undefined) {
-    if (!VALID_PAYMENT_ALLOCATIONS.includes(paymentAllocation)) {
-      return sendError(res, 400, `paymentAllocation must be one of: ${VALID_PAYMENT_ALLOCATIONS.join(", ")}`);
-    }
-    loan.paymentAllocation = paymentAllocation;
+
+  if (description !== undefined) {
+    loan.description = description;
   }
 
   await loan.save();
@@ -275,8 +375,56 @@ const deleteLoan = asyncHandler(async (req, res) => {
   return sendSuccess(res, 200, "Loan deleted successfully", {});
 });
 
-// @desc    Record a repayment against a loan
-// @route   POST /api/loans/:id/repayments
+/**
+ * Validates a proposed repayment date against business rules:
+ * 1. Must not be in the future.
+ * 2. Must not be before the loan creation date.
+ * 3. Must not be before the interest start date.
+ * 4. Must not be earlier than previous repayment date (chronological order).
+ *
+ * @param {object} loan
+ * @param {Date} paymentDate
+ * @returns {Promise<string|null>} error message if invalid, or null if valid
+ */
+const validateRepaymentDate = async (loan, paymentDate) => {
+  const now = new Date();
+  if (paymentDate.getTime() > now.getTime()) {
+    return "Repayment date cannot be in the future";
+  }
+
+  if (loan.loanCreationDate && paymentDate < new Date(loan.loanCreationDate)) {
+    return "Repayment date cannot be before the loan creation date";
+  }
+
+  if (loan.interestStartDate && paymentDate < new Date(loan.interestStartDate)) {
+    return "Repayment date cannot be before the interest start date";
+  }
+
+  // Find previous repayment date if any
+  let lastRepaymentDate = null;
+  if (Array.isArray(loan.repayments) && loan.repayments.length > 0) {
+    for (const r of loan.repayments) {
+      if (r.date) {
+        const rDate = new Date(r.date);
+        if (!lastRepaymentDate || rDate > lastRepaymentDate) {
+          lastRepaymentDate = rDate;
+        }
+      }
+    }
+  }
+
+  const lastTxn = await Transaction.findOne({ loan: loan._id, type: "REPAYMENT" }).sort({ date: -1 });
+  if (lastTxn && (!lastRepaymentDate || new Date(lastTxn.date) > lastRepaymentDate)) {
+    lastRepaymentDate = new Date(lastTxn.date);
+  }
+
+  if (lastRepaymentDate && paymentDate < lastRepaymentDate) {
+    return `Repayment date cannot be earlier than previous repayment date (${lastRepaymentDate.toISOString().slice(0, 10)})`;
+  }
+
+  return null;
+};
+
 // @desc    Record a repayment against a loan
 // @route   POST /api/loans/:id/repayments
 // @access  Private
@@ -290,7 +438,17 @@ const recordRepayment = asyncHandler(async (req, res) => {
     return sendError(res, 400, "Repayment amount must be a positive number");
   }
 
-  const paymentDate = isValidDate(date) ? new Date(date) : new Date();
+  if (date !== undefined && !isValidDate(date)) {
+    return sendError(res, 400, "A valid repayment date is required");
+  }
+
+  const paymentDate = date ? new Date(date) : new Date();
+
+  // TASK 2: Validate repayment date
+  const dateError = await validateRepaymentDate(loan, paymentDate);
+  if (dateError) {
+    return sendError(res, 400, dateError);
+  }
 
   const summaryBefore = interestService.getLoanFinancialSummary(loan, paymentDate);
   if (summaryBefore.remaining <= 0 || loan.status === "PAID") {
@@ -328,7 +486,7 @@ const recordRepayment = asyncHandler(async (req, res) => {
   }
 
   await loan.save();
-  await refreshLoanStatus(loan);
+  await refreshLoanStatus(loan, paymentDate);
 
   const summaryAfter = interestService.getLoanFinancialSummary(loan, paymentDate);
 
@@ -375,13 +533,25 @@ const getRepaymentPreview = asyncHandler(async (req, res) => {
   if (!loan) return;
 
   const { amount, date } = req.body;
-  const paymentDate = isValidDate(date) ? new Date(date) : new Date();
-  const summaryBefore = interestService.getLoanFinancialSummary(loan, paymentDate);
 
   const amountNum = Number(amount);
   if (!isPositiveNumber(amountNum)) {
     return sendError(res, 400, "Repayment amount must be a positive number");
   }
+
+  if (date !== undefined && !isValidDate(date)) {
+    return sendError(res, 400, "A valid date is required");
+  }
+
+  const paymentDate = date ? new Date(date) : new Date();
+
+  // TASK 2: Validate preview repayment date
+  const dateError = await validateRepaymentDate(loan, paymentDate);
+  if (dateError) {
+    return sendError(res, 400, dateError);
+  }
+
+  const summaryBefore = interestService.getLoanFinancialSummary(loan, paymentDate);
 
   if (summaryBefore.remaining <= 0 || loan.status === "PAID") {
     return sendError(res, 400, "This loan is already fully paid off");

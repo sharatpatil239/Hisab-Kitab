@@ -137,9 +137,14 @@ const getBorrowerAccountSummary = asyncHandler(async (req, res) => {
 
   const loansWithSummary = loans.map((loan) => {
     const summary = interestService.getLoanFinancialSummary(loan);
+    const effectiveStatus = interestService.getEffectiveLoanStatus(loan);
+    if (loan.status !== effectiveStatus) {
+      loan.status = effectiveStatus;
+      loan.save().catch(() => {});
+    }
     return {
       id: loan._id,
-      principal: loan.principal,
+      principal: round2(loan.principal),
       principalPaid: loan.principalPaid,
       interestPaid: loan.interestPaid,
       interestType: loan.interestType,
@@ -147,7 +152,8 @@ const getBorrowerAccountSummary = asyncHandler(async (req, res) => {
       ratePeriod: loan.ratePeriod,
       interestStartDate: loan.interestStartDate,
       dueDate: loan.dueDate,
-      status: loan.status,
+      loanCreationDate: loan.loanCreationDate,
+      status: effectiveStatus,
       paymentAllocation: loan.paymentAllocation,
       ...summary,
     };

@@ -23,10 +23,16 @@ const getDashboard = asyncHandler(async (req, res) => {
   let outstandingInterest = 0;
   let activeLoanCount = 0;
   let overdueLoanCount = 0;
+  let paidLoanCount = 0;
 
   const loanSummaries = loans.map((loan) => {
     const summary = interestService.getLoanFinancialSummary(loan);
-    const overdue = interestService.isLoanOverdue(loan);
+    const effectiveStatus = interestService.getEffectiveLoanStatus(loan);
+
+    if (loan.status !== effectiveStatus) {
+      loan.status = effectiveStatus;
+      loan.save().catch(() => {});
+    }
 
     totalLent += loan.principal;
     totalReceived += summary.totalPaid;
@@ -35,20 +41,37 @@ const getDashboard = asyncHandler(async (req, res) => {
     outstandingPrincipal += summary.outstandingPrincipal;
     outstandingInterest += summary.outstandingInterest;
 
-    if (loan.status !== "PAID") activeLoanCount += 1;
-    if (overdue) overdueLoanCount += 1;
+    if (effectiveStatus === "PAID") {
+      paidLoanCount += 1;
+    } else if (effectiveStatus === "OVERDUE") {
+      overdueLoanCount += 1;
+    } else {
+      activeLoanCount += 1;
+    }
 
-    return { loan, summary, overdue };
+    return { loan, summary, effectiveStatus };
   });
 
   const activeBorrowerIds = new Set(
-    loanSummaries.filter((entry) => entry.loan.status !== "PAID").map((entry) => String(entry.loan.borrower))
+    loanSummaries
+      .filter((entry) => entry.effectiveStatus !== "PAID")
+      .map((entry) => String(entry.loan.borrower))
   );
 
   const recentLoans = await Loan.find({ lender: lenderId })
     .sort({ createdAt: -1 })
     .limit(5)
     .populate("borrower", "name phone");
+
+  const formattedRecentLoans = recentLoans.map((loan) => {
+    const summary = interestService.getLoanFinancialSummary(loan);
+    const effectiveStatus = interestService.getEffectiveLoanStatus(loan);
+    return {
+      ...loan.toObject(),
+      status: effectiveStatus,
+      ...summary,
+    };
+  });
 
   const recentRepayments = await Transaction.find({ lender: lenderId, type: "REPAYMENT" })
     .sort({ date: -1 })
@@ -72,8 +95,9 @@ const getDashboard = asyncHandler(async (req, res) => {
       totalLoans: loans.length,
       activeLoans: activeLoanCount,
       overdueLoans: overdueLoanCount,
+      paidLoans: paidLoanCount,
     },
-    recentLoans,
+    recentLoans: formattedRecentLoans,
     recentRepayments,
     topOutstandingBorrowers,
   });

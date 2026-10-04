@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { deleteLoan, getLoanById, recordRepayment } from "../api/loanApi";
+import { deleteLoan, getLoanById, recordRepayment, updateLoan } from "../api/loanApi";
 import { getBorrowerById } from "../api/borrowerApi";
 import { usePageHeader } from "../components/layout/AppLayout";
 import LoadingState from "../components/common/LoadingState";
@@ -10,6 +10,7 @@ import Badge from "../components/common/Badge";
 import Modal from "../components/common/Modal";
 import ConfirmDialog from "../components/common/ConfirmDialog";
 import RepaymentForm from "../components/loans/RepaymentForm";
+import EditLoanForm from "../components/loans/EditLoanForm";
 import TransactionList from "../components/transactions/TransactionList";
 import {
   formatCurrency,
@@ -36,6 +37,7 @@ const LoanDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -76,6 +78,15 @@ const LoanDetails = () => {
     return res;
   };
 
+  const handleEditLoan = async (values) => {
+    const res = await updateLoan(id, values);
+    if (res?.loan) {
+      setLoan(res.loan);
+    }
+    setShowEditModal(false);
+    load();
+  };
+
   const handleDelete = async () => {
     setDeleteError("");
     setDeleting(true);
@@ -107,6 +118,9 @@ const LoanDetails = () => {
             Allocation: {PAYMENT_ALLOCATION_LABELS[loan.paymentAllocation] || loan.paymentAllocation}
           </Badge>
           <Badge tone={statusTone(loan.status)}>{LOAN_STATUS_LABELS[loan.status] || loan.status}</Badge>
+          <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(true)}>
+            Edit Loan
+          </button>
           <button type="button" className="btn btn-secondary" onClick={() => setShowDeleteConfirm(true)}>
             Delete
           </button>
@@ -236,6 +250,15 @@ const LoanDetails = () => {
           <TransactionList transactions={transactions} />
         )}
       </section>
+
+      <Modal open={showEditModal} title="Edit Loan" onClose={() => setShowEditModal(false)} wide>
+        <EditLoanForm
+          loan={loan}
+          transactions={transactions}
+          onSubmit={handleEditLoan}
+          onCancel={() => setShowEditModal(false)}
+        />
+      </Modal>
 
       <Modal open={showRepaymentModal} title="Record Repayment" onClose={() => setShowRepaymentModal(false)}>
         <RepaymentForm

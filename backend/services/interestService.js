@@ -351,13 +351,49 @@ const allocateRepayment = (loan, paymentAmount, asOfDate = new Date()) => {
 };
 
 /**
+ * Centralized logic for determining the effective status of a loan as of a given date (defaults to now).
+ *
+ * Rules:
+ * PAID:
+ *   Outstanding total <= 0
+ * OVERDUE:
+ *   Outstanding total > 0 AND asOfDate > dueDate
+ * ACTIVE:
+ *   Outstanding total > 0 AND asOfDate <= dueDate
+ *
+ * @param {object} loan - Loan mongoose document or plain object
+ * @param {Date} [asOfDate] - defaults to now
+ * @returns {"PAID" | "OVERDUE" | "ACTIVE"}
+ */
+const getEffectiveLoanStatus = (loan, asOfDate = new Date()) => {
+  // If already flagged PAID and has zero or settled outstanding balance
+  if (loan.status === "PAID") {
+    return "PAID";
+  }
+
+  const summary = getLoanFinancialSummary(loan, asOfDate);
+  const remaining = summary.totalOutstanding !== undefined ? summary.totalOutstanding : summary.remaining;
+
+  if (remaining <= 0) {
+    return "PAID";
+  }
+
+  const targetDate = new Date(asOfDate);
+  const dueDate = new Date(loan.dueDate);
+
+  if (targetDate > dueDate) {
+    return "OVERDUE";
+  }
+
+  return "ACTIVE";
+};
+
+/**
  * Determines whether a loan should be considered overdue as of a given date:
  * its due date has passed and it still has money owed.
  */
 const isLoanOverdue = (loan, asOfDate = new Date()) => {
-  if (loan.status === "PAID") return false;
-  const summary = getLoanFinancialSummary(loan, asOfDate);
-  return new Date(asOfDate) > new Date(loan.dueDate) && summary.totalOutstanding > 0;
+  return getEffectiveLoanStatus(loan, asOfDate) === "OVERDUE";
 };
 
 module.exports = {
@@ -366,7 +402,9 @@ module.exports = {
   calculateAccruedInterest,
   getLoanFinancialSummary,
   allocateRepayment,
+  getEffectiveLoanStatus,
   isLoanOverdue,
   getElapsedDays,
   getDailyRateDecimal,
 };
+

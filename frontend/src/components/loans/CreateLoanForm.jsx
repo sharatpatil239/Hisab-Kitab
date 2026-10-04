@@ -8,6 +8,7 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
     interestType: "SIMPLE",
     interestRate: "",
     ratePeriod: "YEARLY",
+    loanCreationDate: TODAY,
     interestStartDate: TODAY,
     dueDate: "",
     paymentAllocation: "INTEREST_FIRST",
@@ -17,7 +18,15 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
   const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (e) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      // If user updates loanCreationDate and interestStartDate was matching previous creationDate, keep them synced by default
+      if (name === "loanCreationDate" && prev.interestStartDate === prev.loanCreationDate) {
+        next.interestStartDate = value;
+      }
+      return next;
+    });
   };
 
   const setInterestType = (value) => setForm((prev) => ({ ...prev, interestType: value }));
@@ -33,10 +42,22 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
     if (form.interestRate === "" || Number.isNaN(rateNum) || rateNum < 0) {
       return "Interest rate must be a non-negative number.";
     }
+    if (!form.loanCreationDate) return "Disbursement / Creation date is required.";
     if (!form.interestStartDate) return "Interest start date is required.";
     if (!form.dueDate) return "Due date is required.";
-    if (new Date(form.dueDate) < new Date(form.interestStartDate)) {
+
+    const creation = new Date(form.loanCreationDate);
+    const start = new Date(form.interestStartDate);
+    const due = new Date(form.dueDate);
+
+    if (start < creation) {
+      return "Interest start date cannot be before loan disbursement date.";
+    }
+    if (due < start) {
       return "Due date cannot be before the interest start date.";
+    }
+    if (due < creation) {
+      return "Due date cannot be before loan disbursement date.";
     }
     return "";
   };
@@ -57,6 +78,7 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
         interestType: form.interestType,
         interestRate: Number(form.interestRate),
         ratePeriod: form.ratePeriod,
+        loanCreationDate: form.loanCreationDate,
         interestStartDate: form.interestStartDate,
         dueDate: form.dueDate,
         paymentAllocation: form.paymentAllocation,
@@ -151,6 +173,16 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
 
         <div className="form-row">
           <div className="form-group">
+            <label htmlFor="loanCreationDate">Disbursement Date</label>
+            <input
+              id="loanCreationDate"
+              name="loanCreationDate"
+              type="date"
+              value={form.loanCreationDate}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="form-group">
             <label htmlFor="interestStartDate">Interest Start Date</label>
             <input
               id="interestStartDate"
@@ -160,10 +192,11 @@ const CreateLoanForm = ({ onSubmit, onCancel, submitLabel = "Create Loan" }) => 
               onChange={handleChange}
             />
           </div>
-          <div className="form-group">
-            <label htmlFor="dueDate">Due Date</label>
-            <input id="dueDate" name="dueDate" type="date" value={form.dueDate} onChange={handleChange} />
-          </div>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="dueDate">Due Date</label>
+          <input id="dueDate" name="dueDate" type="date" value={form.dueDate} onChange={handleChange} />
         </div>
 
         <div className="form-group">

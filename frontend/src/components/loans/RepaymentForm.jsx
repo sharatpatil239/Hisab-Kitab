@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getRepaymentPreview } from "../../api/loanApi";
 import Badge from "../common/Badge";
-import { formatCurrency, PAYMENT_ALLOCATION_LABELS } from "../../utils/format";
+import { formatCurrency, PAYMENT_ALLOCATION_LABELS, toDateInputValue } from "../../utils/format";
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -61,6 +61,23 @@ const RepaymentForm = ({ loan, remaining, onSubmit, onCancel }) => {
     e.preventDefault();
     if (!validAmount) {
       setError("Enter a valid repayment amount.");
+      return;
+    }
+
+    if (!form.date) {
+      setError("Repayment date is required.");
+      return;
+    }
+    if (form.date > TODAY) {
+      setError("Repayment date cannot be in the future.");
+      return;
+    }
+    if (loan?.loanCreationDate && form.date < toDateInputValue(loan.loanCreationDate)) {
+      setError("Repayment date cannot be before the loan creation date.");
+      return;
+    }
+    if (loan?.interestStartDate && form.date < toDateInputValue(loan.interestStartDate)) {
+      setError("Repayment date cannot be before the interest start date.");
       return;
     }
 
@@ -184,7 +201,7 @@ const RepaymentForm = ({ loan, remaining, onSubmit, onCancel }) => {
 
       <div className="form-group">
         <label htmlFor="date">Date</label>
-        <input id="date" name="date" type="date" value={form.date} onChange={handleChange} />
+        <input id="date" name="date" type="date" value={form.date} onChange={handleChange} max={TODAY} />
       </div>
 
       <div className="form-group">
